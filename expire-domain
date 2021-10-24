@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+
+usage()
+{
+    echo "Usage: $0 [ -f format ] [ -d ] domain"
+    echo ""
+    echo "  -f format : Date Format"
+    echo "  -d        : Days left"
+    echo "  domain    : Domain"
+    echo ""
+}
+
+FORMAT="+%Y-%m-%d"
+DAY=false
+
+EXPIRE_DATE_REGS=(
+    "Registry Expiry Date: (.*)"
+    "Registrar Registration Expiration Date: (.*)"
+    "Expiry date: (.*)"
+    "Expire Date: (.*)"
+    "Expiration Date[ ]*: (.*)"
+    "Expiration Time: (.*)"
+    "expire: (.*)"
+    "expires: (.*)"
+    "option expiration date: (.*)"
+    "paid-till: (.*)"
+    "\[Expires on\] (.*)"
+    "\[State\] (.*)"
+)
+
+while getopts f:d option
+do
+    case "${option}"
+    in
+        f ) FORMAT=${OPTARG};;
+        d ) DAY=true;;
+        ? ) usage
+            exit 2 ;;
+    esac
+done
+
+shift `expr $OPTIND - 1`
+
+DOMAIN=$1
+
+if [ -z ${DOMAIN} ]
+then
+    usage
+    exit 2
+fi
+
+
+# Query whois
+INFO=`LANG=C whois $DOMAIN`
+
+
+for ((i = 0; i < ${#EXPIRE_DATE_REGS[@]}; i++))
+do
+
+    if [ -z "$EXPIRE_DATE_TIME" ]; then
+
+        # Get date format
+        EXPIRE_DATE_STR=`echo "$INFO" | grep -iE "${EXPIRE_DATE_REGS[$i]}" | grep -oE "([0-9]+)(.*)([0-9]+)"`
+
+        # String formatting
+        EXPIRE_DATE_STR=`echo $EXPIRE_DATE_STR | sed -E "s#(\.[ ]?)#-#g"`
+
+        # String formatting
+        EXPIRE_DATE_STR=`echo $EXPIRE_DATE_STR | sed -E "s/(.*)([^0-9])([0-9]{2})([0-9]{2})$/\1\2\4/g"`
+
+        if [ -n "$EXPIRE_DATE_STR" ]; then
+
+            # Validity check
+            DATE_ERROR="$(date '+%s' -d "$EXPIRE_DATE_STR" 2>&1 > /dev/null)"
+
+            if [ -z "$DATE_ERROR" ]; then
+
+                EXPIRE_DATE_TIME=`date '+%s' -d "$EXPIRE_DATE_STR"`
+            fi
+        fi
+    fi
+done
+
+
+if [ -z "$EXPIRE_DATE_TIME" ]; then
+    echo "Unable to get date." >&2
+    exit 1
+fi
+
+
+if "${DAY}"
+then
+
+    EXPIRE_DAY=$((($EXPIRE_DATE_TIME - `date '+%s'`)/86400))
+
+    echo $EXPIRE_DAY
+
+else
+    echo `date "$FORMAT" -d "@$EXPIRE_DATE_TIME"`
+fi
+
+exit 0
